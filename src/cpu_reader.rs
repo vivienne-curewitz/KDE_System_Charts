@@ -37,6 +37,7 @@ impl CpuInfo {
     }
 }
 
+#[derive(Clone)]
 pub struct CpuProcBuffer {
     position: usize,
     size: usize,
@@ -54,7 +55,7 @@ impl CpuProcBuffer {
 
     fn insert(&mut self, ci: CpuInfo) {
         self.ring[self.position] = ci;
-        self.position = (self.position + 1) & self.size;
+        self.position = (self.position + 1) % self.size;
     }
 
     fn delta(&mut self) -> CpuInfo {
@@ -132,6 +133,42 @@ impl ProcFileManager {
             let st: i64 = step_diff[1].system;
             // just print cpu 1 for now
             println!("CPU 1: User: {} System: {}", ut, st);
+        }
+    }
+
+    pub fn read_and_print_circle_buffer(&mut self, num_cpus: usize, frequency: i32) {
+        let mut step_diff: Vec<CpuProcBuffer> =
+            vec![CpuProcBuffer::new(frequency as usize); num_cpus + 1];
+        let mut proc_num = 0;
+        for init_cpu in self.get_cpu_step().into_iter().map(string_to_cpu_info) {
+            let v2 = init_cpu.expect("Failed to read cpu line in init");
+            step_diff[proc_num].insert(v2);
+            proc_num += 1;
+        }
+        let mut step_count = 0;
+        let sleep_time = std::time::Duration::from_millis(1000 / frequency as u64);
+        loop {
+            std::thread::sleep(sleep_time);
+            proc_num = 0;
+            for step_data in self
+                .get_cpu_step()
+                .into_iter()
+                .map(string_to_cpu_info)
+                .collect::<Result<Vec<_>, _>>()
+                .expect("Failed to read a cpu line")
+                .into_iter()
+            {
+                step_diff[proc_num].insert(step_data);
+                proc_num += 1;
+            }
+            step_count += 1;
+            if step_count >= frequency {
+                let delta_ett = step_diff[0].delta();
+                let ut: i64 = delta_ett.user + delta_ett.nice;
+                let st: i64 = delta_ett.system;
+                // just print cpu 1 for now
+                println!("CPU 1: User: {}% System: {}%", ut, st);
+            }
         }
     }
 }
