@@ -1,5 +1,5 @@
 pushd build
 cmake ..
 make
-./app
 popd
+mv build/app ./app

@@ -3,11 +3,6 @@ mod mem_reader;
 use zbus::object_server::SignalEmitter;
 use zbus::{connection::Builder, interface, zvariant::Type};
 
-#[derive(serde::Deserialize, serde::Serialize, Type, Debug, Clone)]
-struct CpuDbusInfo {
-    data: Vec<cpu_reader::SimpleCpuInfo>,
-}
-
 pub struct SysManager;
 
 #[interface(name = "org.vivicado.SysInfo")]
@@ -23,7 +18,7 @@ impl SysManager {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting CPU Proc Daemon");
-    let cpu_frequency = 20;
+    let cpu_frequency = 50;
     let mut mem_ticker = tokio::time::interval(std::time::Duration::from_millis(200));
     let mut cpu_ticker = tokio::time::interval(std::time::Duration::from_millis(cpu_frequency));
     let mut mem_reader = mem_reader::MemInfo::new();
@@ -32,20 +27,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Create the backend manager
     let sys_manager = SysManager;
 
-    // 2. Build the connection and request a name on the Session Bus
     let conn = Builder::session()?
         .name("org.vivicado.Daemon")?
         .serve_at("/org/vivicado/SysInfo", sys_manager)?
         .build()
         .await?;
 
-    // 3. Get a reference to the interface so we can emit signals
     let interface_ref = conn
         .object_server()
         .interface::<_, SysManager>("/org/vivicado/SysInfo")
         .await?;
 
-    // This context is what actually sends the signal
     let signal_emitter = interface_ref.signal_emitter();
 
     loop {
