@@ -1,5 +1,12 @@
 use std::fs::File;
 use std::io::{Read, Seek};
+use zbus::zvariant::Type;
+
+#[derive(Clone, Type, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SimpleCpuInfo {
+    pub user: i64,
+    pub system: i64,
+}
 
 #[derive(Clone)]
 pub struct CpuInfo {
@@ -24,7 +31,7 @@ impl CpuInfo {
             softirq: 0,
         }
     }
-    pub fn simple_delta(&self, other: &CpuInfo) -> CpuInfo {
+    pub fn delta(&self, other: &CpuInfo) -> CpuInfo {
         CpuInfo {
             user: (self.user - other.user).abs(),
             nice: (self.nice - other.nice).abs(),
@@ -33,6 +40,14 @@ impl CpuInfo {
             iowait: (self.iowait - other.iowait).abs(),
             irq: (self.irq - other.irq).abs(),
             softirq: (self.softirq - other.softirq).abs(),
+        }
+    }
+
+    pub fn simple_delta(&self, other: &CpuInfo) -> SimpleCpuInfo {
+        let delta = self.delta(other);
+        SimpleCpuInfo {
+            user: delta.user + delta.nice,
+            system: delta.system,
         }
     }
 }
@@ -58,7 +73,7 @@ impl CpuProcBuffer {
         self.position = (self.position + 1) % self.size;
     }
 
-    fn delta(&mut self) -> CpuInfo {
+    fn delta(&self) -> SimpleCpuInfo {
         let current = &self.ring[self.position];
         let wrap = &self.ring[(self.position + 1) % self.size];
         current.simple_delta(wrap)
@@ -67,6 +82,7 @@ impl CpuProcBuffer {
 
 pub struct ProcFileManager {
     cpu_file: File,
+    cpu_rings: Vec<CpuProcBuffer>,
 }
 pub fn string_to_cpu_info(input: String) -> Result<CpuInfo, &'static str> {
     let cpu_vals: Vec<&str> = input.split_whitespace().collect();
@@ -87,9 +103,12 @@ pub fn string_to_cpu_info(input: String) -> Result<CpuInfo, &'static str> {
     }
 }
 impl ProcFileManager {
-    pub fn new() -> ProcFileManager {
+    pub fn new(frequency: i32, num_cpus: usize) -> ProcFileManager {
         let cpu_file = File::open("/proc/stat").expect("Could not open stat");
-        ProcFileManager { cpu_file }
+        ProcFileManager {
+            cpu_file,
+            cpu_rings: vec![CpuProcBuffer::new(1000 / frequency as usize); num_cpus + 1],
+        }
     }
     pub fn get_cpu_step(&mut self) -> Vec<String> {
         //match set.cpu_file.seek(0) {
@@ -109,31 +128,23 @@ impl ProcFileManager {
         output
     }
 
-    pub fn read_and_print(&mut self) {
-        let mut step_diff: Vec<CpuInfo> = vec![CpuInfo::empty(); 9];
-        let mut prev_step: Vec<CpuInfo> = self
+    pub fn read_step(&mut self) {
+        for (proc_num, step_data) in self
             .get_cpu_step()
             .into_iter()
             .map(string_to_cpu_info)
             .collect::<Result<Vec<_>, _>>()
-            .expect("Failed to read a cpu line");
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            let mut step_data: Vec<CpuInfo> = self
-                .get_cpu_step()
-                .into_iter()
-                .map(string_to_cpu_info)
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to read a cpu line");
-            for i in 0..step_data.len() {
-                step_diff[i] = step_data[i].simple_delta(&prev_step[i]);
-            }
-            prev_step = step_data;
-            let ut: i64 = step_diff[1].user + step_diff[1].nice;
-            let st: i64 = step_diff[1].system;
-            // just print cpu 1 for now
-            println!("CPU 1: User: {} System: {}", ut, st);
+            .expect("Failed to read a cpu line")
+            .into_iter()
+            .enumerate()
+        {
+            self.cpu_rings[proc_num].insert(step_data);
         }
+    }
+
+    pub fn get_cpu_info(&mut self) -> Vec<SimpleCpuInfo> {
+        let cpu_info = self.cpu_rings.iter().map(|x| x.delta()).collect();
+        cpu_info
     }
 
     pub fn read_and_print_circle_buffer(&mut self, num_cpus: usize, frequency: i32) {
@@ -164,7 +175,7 @@ impl ProcFileManager {
             step_count += 1;
             if step_count >= frequency {
                 let delta_ett = step_diff[0].delta();
-                let ut: i64 = delta_ett.user + delta_ett.nice;
+                let ut: i64 = delta_ett.user;
                 let st: i64 = delta_ett.system;
                 // just print cpu 1 for now
                 println!("CPU 1: User: {}% System: {}%", ut, st);
