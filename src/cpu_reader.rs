@@ -45,9 +45,16 @@ impl CpuInfo {
 
     pub fn simple_delta(&self, other: &CpuInfo) -> SimpleCpuInfo {
         let delta = self.delta(other);
+        let total = delta.user
+            + delta.nice
+            + delta.system
+            + delta.idle
+            + delta.iowait
+            + delta.irq
+            + delta.softirq;
         SimpleCpuInfo {
-            user: delta.user + delta.nice,
-            system: delta.system,
+            user: (100.0 * (delta.user + delta.nice) as f64 / total as f64).round() as i64,
+            system: (100.0 * delta.system as f64 / total as f64).round() as i64,
         }
     }
 }
@@ -62,15 +69,15 @@ pub struct CpuProcBuffer {
 impl CpuProcBuffer {
     fn new(isize: usize) -> CpuProcBuffer {
         CpuProcBuffer {
-            position: 0,
+            position: isize - 1,
             size: isize,
             ring: vec![CpuInfo::empty(); isize],
         }
     }
 
     fn insert(&mut self, ci: CpuInfo) {
-        self.ring[self.position] = ci;
         self.position = (self.position + 1) % self.size;
+        self.ring[self.position] = ci;
     }
 
     fn delta(&self) -> SimpleCpuInfo {
