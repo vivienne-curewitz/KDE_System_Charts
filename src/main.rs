@@ -13,7 +13,11 @@ pub struct SysManager;
 #[interface(name = "org.vivicado.SysInfo")]
 impl SysManager {
     #[zbus(signal)]
-    async fn stats_updated(signal_ctxt: &SignalEmitter<'_>, cpu: CpuDbusInfo) -> zbus::Result<()>;
+    async fn stats_updated(
+        signal_ctxt: &SignalEmitter<'_>,
+        user: Vec<i64>,
+        system: Vec<i64>,
+    ) -> zbus::Result<()>;
 }
 
 #[tokio::main]
@@ -58,10 +62,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cpu_reader.read_step();
                     cpu_reader
                 }).await?;
-                let cpu_dbus = CpuDbusInfo {
-                    data: cpu_reader.get_cpu_info(),
-                };
-                SysManager::stats_updated(signal_emitter, cpu_dbus).await?;
+                let mut user: Vec<i64> = Vec::new();
+                let mut system: Vec<i64> = Vec::new();
+                for cpu in cpu_reader.get_cpu_info().into_iter() {
+                    user.push(cpu.user);
+                    system.push(cpu.system);
+                }
+
+                SysManager::stats_updated(signal_emitter, user, system).await?;
             }
         }
     }
