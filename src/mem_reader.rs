@@ -2,9 +2,9 @@ use std::fs::File;
 use std::io::{Read, Seek};
 
 pub struct MemInfo {
-    total: i64,
-    free: i64,
-    available: i64,
+    pub total: i64,
+    pub free: i64,
+    pub available: i64,
     mem_file: File,
 }
 

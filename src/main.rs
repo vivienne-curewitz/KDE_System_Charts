@@ -15,18 +15,23 @@ impl SysManager {
     ) -> zbus::Result<()>;
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting CPU Proc Daemon");
-    let cpu_frequency = 50;
-    let mut mem_ticker = tokio::time::interval(std::time::Duration::from_millis(200));
-    let mut cpu_ticker = tokio::time::interval(std::time::Duration::from_millis(cpu_frequency));
-    let mut mem_reader = mem_reader::MemInfo::new();
-    let mut cpu_reader = cpu_reader::ProcFileManager::new(cpu_frequency as i32, 8);
-    // setup connection
-    // 1. Create the backend manager
-    let sys_manager = SysManager;
+pub struct MemData;
 
+#[interface(name = "org.vivicado.MemData")]
+impl MemData {
+    #[zbus(signal)]
+    async fn stats_updated(
+        signal_ctxt: &SignalEmitter<'_>,
+        total: i64,
+        available: i64,
+    ) -> zbus::Result<()>;
+}
+
+async fn create_dbus_interface<T: zbus::object_server::Interface>(
+    name: &str,
+    serve_at: &str,
+    data_def: T,
+) {
     let conn = Builder::session()?
         .name("org.vivicado.Daemon")?
         .serve_at("/org/vivicado/SysInfo", sys_manager)?
@@ -39,6 +44,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let signal_emitter = interface_ref.signal_emitter();
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting CPU Proc Daemon");
+    let cpu_frequency = 50;
+    let mut mem_ticker = tokio::time::interval(std::time::Duration::from_millis(200));
+    let mut cpu_ticker = tokio::time::interval(std::time::Duration::from_millis(cpu_frequency));
+    let mut mem_reader = mem_reader::MemInfo::new();
+    let mut cpu_reader = cpu_reader::ProcFileManager::new(cpu_frequency as i32, 8);
+    // setup connection
+    // 1. Create the backend manager
+    let sys_manager = SysManager;
 
     loop {
         tokio::select! {
@@ -48,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     mem_reader.read_mem_file();
                     mem_reader
                 }).await?;
+                MemData::stat
             },
             _ = cpu_ticker.tick() => {
                 cpu_reader = tokio::task::spawn_blocking(move || {
